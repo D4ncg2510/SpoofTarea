@@ -1,39 +1,43 @@
 import subprocess
-import scapy.all as scapy
 import time
 
 def obtener_tabla_arp():
     tabla_arp = {}
-    solicitud_arp = scapy.ARP(pdst="192.168.64.0/24")
-    broadcast = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
-    solicitud_broadcast = broadcast/solicitud_arp
-    lista_contestada = scapy.srp(solicitud_broadcast, timeout=1, verbose=False)[0]
-
-    for elemento in lista_contestada:
-        tabla_arp[elemento[1].psrc] = elemento[1].hwsrc
-
+    resultado = subprocess.check_output(["arp", "-n"]).decode()
+    lineas = resultado.split("\n")
+    for linea in lineas[1:]:
+        if linea:
+            partes = linea.split()
+            ip = partes[0]
+            mac = partes[2]
+            tabla_arp[ip] = mac
     return tabla_arp
 
-def restaurar_arp(ip_objetivo, mac_objetivo, ip_router, mac_router):
-    paquete = scapy.ARP(op=2, pdst=ip_objetivo, hwdst=mac_objetivo, psrc=ip_router, hwsrc=mac_router)
-    scapy.send(paquete, verbose=False)
+def restablecer_arp(ip, mac):
+    print(f"Restableciendo IP {ip} a MAC {mac}")
+    subprocess.call(["arp", "-s", ip, mac])
 
-def monitorear_tabla_arp(tabla_arp_original):
+def monitorizar_tabla_arp(tabla_arp_original):
     while True:
         tabla_arp_actual = obtener_tabla_arp()
-        for ip, mac in tabla_arp_original.items():
-            if ip in tabla_arp_actual and tabla_arp_actual[ip] != mac:
-                print(f"ALERTA: Se ha detectado un cambio en la IP {ip}. MAC original: {mac}, MAC actual: {tabla_arp_actual[ip]}")
-                # Restaurar la dirección MAC original del router despues de detectar el cambio
-                restaurar_arp(ip, mac, ip_router="192.168.64.1", mac_router="00:00:00:00:00:01")
+        for ip, mac in tabla_arp_actual.items():
+            if ip in tabla_arp_original and tabla_arp_original[ip] != mac:
+                print(f"¡Advertencia! La IP {ip} ha sido vulnerada. MAC actual: {mac}, MAC original: {tabla_arp_original[ip]}")
+                restablecer_arp(ip, tabla_arp_original[ip])
+            else:
+                print(f"Verificación correcta para IP {ip}: MAC {mac}")
         time.sleep(10)  # Espera 10 segundos antes de volver a comprobar
 
-def principal():
+def main():
     print("Obteniendo tabla ARP original...")
     tabla_arp_original = obtener_tabla_arp()
-    print("Tabla ARP original obtenida.")
+    print("Tabla ARP original obtenida:")
+    print(tabla_arp_original)
     
-    monitorear_tabla_arp(tabla_arp_original)
+    try:
+        monitorizar_tabla_arp(tabla_arp_original)
+    except KeyboardInterrupt:
+        print("Deteniendo el monitor de la tabla ARP")
 
 if __name__ == "__main__":
-    principal()
+    main()
